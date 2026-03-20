@@ -1,0 +1,33 @@
+{
+    "_comment": "Sample configuration for customer-specific Private Service Edge ranges.",
+    "_instructions": [
+        "Copy this file to pse-config.json and edit to match your environment.",
+        "Add CIDR ranges for any ZIA/ZPA Private Service Edges deployed in China,",
+        "or China Premium (CBC/Zenlayer) infrastructure IPs not in the public CENR list.",
+        "These are checked as Layer 3 after Zscaler public PSE CIDRs (Layer 1)",
+        "and the comprehensive China IP list (Layer 2)."
+    ],
+
+    "china_ranges": [
+        {
+            "cidr": "10.100.0.0/24",
+            "label": "ZIA Private PSE - Shanghai Office",
+            "type": "private_pse"
+        },
+        {
+            "cidr": "10.200.0.0/24",
+            "label": "ZIA Private PSE - Beijing DC",
+            "type": "private_pse"
+        },
+        {
+            "cidr": "172.16.50.0/24",
+            "label": "ZPA Private Service Edge - China",
+            "type": "zpa_private_se"
+        },
+        {
+            "cidr": "203.0.113.0/24",
+            "label": "China Premium (CBC) - Custom Range",
+            "type": "china_premium"
+        }
+    ]
+}
