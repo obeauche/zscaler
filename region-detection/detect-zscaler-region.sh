@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 
@@ -185,13 +185,16 @@ test_china_ip() {
 
     # --- Layer 3: Custom config file ---
     if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
-        # Parse JSON with python3 (available on macOS)
+        # Parse JSON config with python3 (available on macOS).
+        # SECURITY: Pass file path and IP as command-line arguments to avoid
+        # shell injection via crafted file paths or IP strings.
         local custom_matches
-        custom_matches=$(python3 -c "
+        custom_matches=$(python3 - "$CONFIG_FILE" "$gateway_ip" <<'PYEOF'
 import json, sys
 try:
-    config = json.load(open('$CONFIG_FILE'))
-    ip = '$gateway_ip'
+    config_path = sys.argv[1]
+    ip = sys.argv[2]
+    config = json.load(open(config_path))
     ip_parts = list(map(int, ip.split('.')))
     ip_uint = (ip_parts[0] << 24) + (ip_parts[1] << 16) + (ip_parts[2] << 8) + ip_parts[3]
 
@@ -209,7 +212,8 @@ try:
 except Exception as e:
     print(f'ERROR|Config parse error|N/A|{e}', file=sys.stderr)
 sys.exit(1)
-" 2>/dev/null) && {
+PYEOF
+        ) && {
             echo "$custom_matches"
             return 0
         }
@@ -320,7 +324,8 @@ write_result() {
 
     local previous_region=""
     if [[ -f "$RESULT_FILE" ]]; then
-        previous_region=$(python3 -c "import json; print(json.load(open('$RESULT_FILE')).get('region',''))" 2>/dev/null || true)
+        # SECURITY: Pass file path as argument, not string interpolation
+        previous_region=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('region',''))" "$RESULT_FILE" 2>/dev/null || true)
     fi
 
     cat > "$RESULT_FILE" <<JSONEOF
@@ -403,6 +408,11 @@ main() {
     local gateway_ip="" through_zscaler="" method="" confidence=""
 
     if [[ -n "$TEST_IP" ]]; then
+        # Validate IP format before using it
+        if ! [[ "$TEST_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            log ERROR "Invalid IP address format: $TEST_IP"
+            exit 1
+        fi
         gateway_ip="$TEST_IP"
         through_zscaler="false"
         method="test_ip"

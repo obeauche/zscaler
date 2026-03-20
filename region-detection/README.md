@@ -331,23 +331,89 @@ The script outputs JSON for ZDX result capture:
 | **Network** | HTTPS to ip.zscaler.com (optional) | HTTPS to ip.zscaler.com (optional) |
 | **API Keys** | None | None |
 
-## Security
+## Standalone China IP List Generator
+
+`generate-china-ip-list.py` regenerates `cn-ipv4.txt` independently -- no database, no zbrain site needed.
+
+### How It Works
+
+The script intersects up to three independent data sources to classify China IP ranges by confidence:
+
+| Source | What | Required |
+|--------|------|----------|
+| **APNIC RIR** | Authoritative IPv4 delegation registry | Always (fetched automatically) |
+| **bgp.tools** | BGP routing table + ASN country registry | Default on (fetched automatically) |
+| **MaxMind GeoLite2** | Commercial geolocation database | Optional (`--maxmind-db`) |
+
+Confidence tiers:
+- **HIGH** = all available sources agree
+- **MEDIUM** = majority agree
+- **LOW** = only RIR allocation (others disagree or absent)
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--output`, `-o` | `cn-ipv4.txt` | Output file path |
+| `--maxmind-db` | -- | Path to GeoLite2-City.mmdb (free license key from [MaxMind](https://www.maxmind.com/en/geolite2/signup)) |
+| `--skip-bgp` | off | Skip BGP validation (faster but less accurate) |
+| `--include-medium` | off | Include MEDIUM confidence CIDRs (default: HIGH only) |
+
+### Usage
+
+```bash
+pip install httpx                                          # one-time setup
+
+python generate-china-ip-list.py                           # RIR + BGP (recommended)
+python generate-china-ip-list.py --maxmind-db GeoLite2-City.mmdb  # best accuracy
+python generate-china-ip-list.py --skip-bgp                # fastest (RIR only)
+python generate-china-ip-list.py -o /path/to/cn-ipv4.txt   # custom output
+```
+
+The script also writes a `cn-ipv4.stats.json` file alongside the output with source counts and tier breakdowns.
 
 ### External Calls
 
 | Service | URL | Data Sent | Purpose |
 |---------|-----|-----------|---------|
+| APNIC | `ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest` | None | RIR delegation data |
+| bgp.tools | `bgp.tools/table.txt` | User-Agent header | BGP routing table |
+| bgp.tools | `bgp.tools/asns.csv` | User-Agent header | ASN country registry |
+
+## Security
+
+### Detection Scripts — External Calls
+
+| Service | URL | Data Sent | Purpose |
+|---------|-----|-----------|---------|
 | ip.zscaler.com | `https://ip.zscaler.com/` | Source IP (implicit) | Identify PSE gateway IP |
 
-No other external APIs are called. No API keys, tokens, or credentials stored.
+No other external APIs are called by the detection scripts. No API keys, tokens, or credentials stored.
 
-### What This Script Does NOT Do
+### IP List Generator — External Calls
 
-- Does not collect WiFi BSSIDs, GPS coordinates, or cellular identifiers
-- Does not call third-party geolocation APIs
-- Does not modify any Zscaler configuration
-- Does not require or store API keys
-- Does not install services or drivers
+| Service | URL | Data Sent | Purpose |
+|---------|-----|-----------|---------|
+| APNIC FTP | `https://ftp.apnic.net/...` | None | China IPv4 allocations |
+| bgp.tools | `https://bgp.tools/table.txt` | User-Agent | Global BGP routing table |
+| bgp.tools | `https://bgp.tools/asns.csv` | User-Agent | ASN country mappings |
+
+The User-Agent header identifies the tool (`china-ip-list-generator/1.0`). No authentication or API keys required.
+
+### Input Validation
+
+- **IP addresses**: Both scripts validate `-TestIP`/`--test-ip` format before processing
+- **Config files**: Parsed with standard JSON libraries; file paths passed as arguments (not interpolated into code)
+- **CIDR lists**: Validated against `^\d+\.\d+\.\d+\.\d+/\d+$` regex; malformed lines are skipped
+
+### What These Scripts Do NOT Do
+
+- Do not collect WiFi BSSIDs, GPS coordinates, or cellular identifiers
+- Do not call third-party geolocation APIs (detection scripts)
+- Do not modify any Zscaler configuration
+- Do not require or store API keys (detection scripts)
+- Do not install services or drivers
+- Do not execute arbitrary code from config files
 
 ## Zscaler Documentation References
 

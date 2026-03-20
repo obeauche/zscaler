@@ -65,7 +65,7 @@
     .\Detect-ZscalerRegion.ps1 -ConfigFile ".\pse-config.json"
 
 .NOTES
-    Version:  2.0.0
+    Version:  2.0.1
     Author:   Olivier Beauchemin
     Requires: PowerShell 5.1+, Administrator (for registry write)
 #>
@@ -84,7 +84,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$script:Version = "2.0.0"
+$script:Version = "2.0.1"
 
 # --- Default China IP list path: same directory as script ---
 if (-not $ChinaIPList) {
@@ -363,6 +363,13 @@ function Get-GatewayFromTunnelProcess {
 }
 
 function Get-PSEGatewayIP {
+    <#
+    .SYNOPSIS
+        Determine the PSE gateway IP using available methods.
+    .DESCRIPTION
+        Tries ip.zscaler.com first (preferred — confirms Zscaler routing),
+        falls back to inspecting ZSATunnel process TCP connections.
+    #>
     $result = Get-GatewayFromIpZscaler
     if ($result -and $result.IP) { return $result }
 
@@ -378,6 +385,13 @@ function Get-PSEGatewayIP {
 #region --- Registry Output ---
 
 function Write-RegistryResult {
+    <#
+    .SYNOPSIS
+        Write detection result to Windows registry for ZCC Device Posture consumption.
+    .DESCRIPTION
+        Creates/updates HKLM:\SOFTWARE\Zscaler\GeoLocation with region detection results.
+        Tracks previous region for audit trail. Skips write in DryRun mode.
+    #>
     param(
         [string]$Region,
         [string]$GatewayIP,
@@ -493,6 +507,11 @@ function Invoke-Detection {
 
     # --- Phase 1: Get gateway IP ---
     if ($TestIP) {
+        # Validate IP address format
+        if ($TestIP -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+            Write-Log "Invalid IP address format: $TestIP" -Level ERROR
+            return @{ Success = $false; Region = "UNKNOWN"; Reason = "Invalid IP format" }
+        }
         Write-Log "Test IP: $TestIP" -Level INFO
         $gatewayResult = @{ IP = $TestIP; ThroughZscaler = $false; Method = "TestIP" }
     }

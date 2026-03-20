@@ -2,6 +2,21 @@
 
 All notable changes to the Zscaler GeoLocation Detection Script are documented here.
 
+## [2.0.1] - 2026-03-20
+
+### Security
+- **Fixed command injection in macOS script** - `detect-zscaler-region.sh` Layer 3 config parsing passed `$CONFIG_FILE` path directly into inline Python via string interpolation. A crafted file path containing single quotes could inject arbitrary Python code. Now passes paths and IPs as `sys.argv` arguments instead of string interpolation.
+- **Added IP address format validation** - Both Windows and macOS scripts now validate `-TestIP`/`--test-ip` input against `^\d+\.\d+\.\d+\.\d+$` before processing.
+
+### Added
+- **`generate-china-ip-list.py`** - Standalone script to regenerate `cn-ipv4.txt` without depending on the zbrain site or any database. Fetches ASN data directly from `bgp.tools/asns.csv`. Only requires `pip install httpx`; MaxMind GeoIP is optional (`--maxmind-db`).
+- **ZDX Remediation deployment guide** - README now includes requirements, setup steps, and JSON output format for ZDX script deployment (requires Advanced Plus subscription).
+- **JSON output** - Windows script now outputs structured JSON to stdout for ZDX Remediation result capture and automation tools.
+- **Function documentation** - Added comment-based help (`.SYNOPSIS`/`.DESCRIPTION`) to `Write-RegistryResult` and `Get-PSEGatewayIP`.
+
+### Fixed
+- **PowerShell 5.1 compatibility** - Replaced `??` null-coalescing operator (PowerShell 7+ only) with `if/else` conditional in `Write-RegistryResult`. The script header claims PS 5.1+ compatibility; this fix ensures it.
+
 ## [2.0.0] - 2026-03-20
 
 ### Changed — Complete Architecture Redesign
