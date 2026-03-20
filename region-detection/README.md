@@ -102,6 +102,7 @@ sudo ./detect-zscaler-region.sh --install
 | `test-region-detection.sh` | macOS/Linux test harness (27 tests) |
 | `cn-ipv4.txt` | China IP CIDR list for Layer 2 (2,246 ranges) |
 | `pse-config.sample.json` | Sample config for customer Private PSE ranges |
+| `generate-china-ip-list.py` | Standalone script to regenerate cn-ipv4.txt |
 | `CHANGELOG.md` | Version history |
 
 ## Configuration
@@ -214,11 +215,24 @@ Tests cover:
 
 ### Updating the China IP List
 
-The `cn-ipv4.txt` file contains 2,246 high-confidence China CIDRs generated from three-way intersection of RIR delegated stats, MaxMind GeoLite2, and BGP routing data. To regenerate:
+The `cn-ipv4.txt` file contains 2,246 high-confidence China CIDRs generated from three-way intersection of RIR delegated stats, MaxMind GeoLite2, and BGP routing data.
 
-1. Use the Country IP Intelligence tool in the RAG frontend
-2. Export the high-confidence tier
-3. Replace `cn-ipv4.txt`
+**Regenerate with the standalone script (no external dependencies):**
+
+```bash
+# Install requirements
+pip install httpx
+
+# Generate with RIR + BGP validation (recommended)
+python generate-china-ip-list.py
+
+# For best accuracy, add MaxMind GeoLite2 (free license key)
+# Sign up at https://www.maxmind.com/en/geolite2/signup
+python generate-china-ip-list.py --maxmind-db /path/to/GeoLite2-City.mmdb
+
+# Custom output path
+python generate-china-ip-list.py --output /path/to/cn-ipv4.txt
+```
 
 The list should be regenerated quarterly or when significant China IP allocation changes occur.
 
