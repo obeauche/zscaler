@@ -270,6 +270,56 @@ The list should be regenerated quarterly or when significant China IP allocation
 3. Position **above** the default SSL inspection rule
 4. **Activate Changes**
 
+## ZDX Remediation Deployment (Alternative)
+
+The detection script is compatible with **ZDX Remediation** (requires Advanced Plus subscription, Limited Availability). This lets you push the script to endpoints remotely instead of using Scheduled Tasks.
+
+### Requirements
+
+| Requirement | Detail |
+|-------------|--------|
+| **ZDX Subscription** | Advanced Plus |
+| **ZCC Version** | 4.8+ (Windows) |
+| **ZDX Module** | 4.6+ (Windows) |
+| **Script Signing** | Code signing certificate required |
+| **Execution Policy** | `AllSigned` on target devices |
+
+### Setup
+
+1. **Sign the script** with a code signing certificate:
+   ```powershell
+   $cert = Get-ChildItem Cert:\LocalMachine\My -CodeSigningCert |
+       Where-Object { $_.Subject -match "YourCertName" }
+   Set-AuthenticodeSignature -FilePath .\Detect-ZscalerRegion.ps1 `
+       -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+   ```
+
+2. **Deploy `cn-ipv4.txt`** to a known path on endpoints (e.g., via GPO or SCCM):
+   ```
+   C:\ProgramData\Zscaler\GeoLocation\cn-ipv4.txt
+   ```
+
+3. **Upload to ZDX** (Administration > Remediation > Add Script):
+   - Upload the signed `Detect-ZscalerRegion.ps1`
+   - Add parameter: Name=`ChinaIPList`, Value=`C:\ProgramData\Zscaler\GeoLocation\cn-ipv4.txt`
+   - Enable "Run Script with Elevated Permissions (System Account)"
+
+4. **Start a Remediation Job** targeting desired devices
+
+The script outputs JSON for ZDX result capture:
+```json
+{"success":true,"region":"CN","gatewayIP":"211.144.19.50","pseLocation":"Beijing","matchLayer":"L1_PublicPSE","confidence":"HIGH","method":"ip.zscaler.com","scriptVersion":"2.0.0","timestamp":"2026-03-20T10:30:00+08:00"}
+```
+
+### References
+
+| Document | URL |
+|----------|-----|
+| About Scripts | https://help.zscaler.com/zdx/about-scripts |
+| Preparing Certification and Signing | https://help.zscaler.com/zdx/preparing-certification-and-signing-script |
+| Managing Scripts | https://help.zscaler.com/zdx/managing-remote-scripts |
+| Configuring Remediation Settings | https://help.zscaler.com/zdx/configuring-remote-script-run-settings |
+
 ## Prerequisites
 
 | Requirement | Windows | macOS |

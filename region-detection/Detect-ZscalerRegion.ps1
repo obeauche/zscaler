@@ -405,7 +405,8 @@ function Write-RegistryResult {
         $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
         Set-ItemProperty -Path $RegistryPath -Name "CountryCode"      -Value $Region            -Type String
         Set-ItemProperty -Path $RegistryPath -Name "GatewayIP"        -Value $GatewayIP         -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "PSELocation"      -Value ($PSELocation ?? "Unknown") -Type String
+        $locationValue = if ($PSELocation) { $PSELocation } else { "Unknown" }
+        Set-ItemProperty -Path $RegistryPath -Name "PSELocation"      -Value $locationValue -Type String
         Set-ItemProperty -Path $RegistryPath -Name "MatchLayer"       -Value $MatchLayer        -Type String
         Set-ItemProperty -Path $RegistryPath -Name "DetectionMethod"  -Value $DetectionMethod   -Type String
         Set-ItemProperty -Path $RegistryPath -Name "Confidence"       -Value $Confidence        -Type String
@@ -562,6 +563,19 @@ function Invoke-Detection {
 }
 
 $result = Invoke-Detection
-$result
+
+# Output JSON for structured consumption (ZDX Remediation, automation tools)
+$jsonResult = @{
+    success        = $result.Success
+    region         = $result.Region
+    gatewayIP      = $result.GatewayIP
+    pseLocation    = $result.PSELocation
+    matchLayer     = $result.MatchLayer
+    confidence     = $result.Confidence
+    method         = $result.Method
+    scriptVersion  = $script:Version
+    timestamp      = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
+} | ConvertTo-Json -Compress
+Write-Output $jsonResult
 
 #endregion
