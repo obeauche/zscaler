@@ -2,6 +2,25 @@
 
 All notable changes to the Zscaler GeoLocation Detection Script are documented here.
 
+## [2.1.0] - 2026-03-22
+
+### Changed
+- Removed Python 3 dependency — Layer 3 config parsing and JSON reading now use pure bash/awk
+- Replaced Layer 2 bash CIDR loop with awk for ~20x performance improvement (1-3s → ~50ms)
+- Hardened ZCC process detection to handle different tunnel process names across versions
+- Hardened gateway IP extraction with BSD awk-compatible parsing (removed gawk dependency)
+
+### Added
+- `json_escape()` helper for safe JSON output (handles quotes, backslashes, newlines in PSE labels)
+- Structured exit codes: 0=NON-CN, 1=CN, 2=UNKNOWN, 3=Script error
+- Log rotation (keeps last 500 lines) to prevent unbounded log growth
+- `--install` now passes `--config` and `--china-ip-list` arguments through to the launchd plist
+- 3 new test cases for exit code validation (30 total tests)
+
+### Fixed
+- Layer 3 custom config parsing no longer requires Python 3 (MDM-compatible)
+- `install_launchd()` now preserves runtime arguments in the generated plist
+
 ## [2.0.1] - 2026-03-20
 
 ### Security

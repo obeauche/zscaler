@@ -92,6 +92,27 @@ sudo ./detect-zscaler-region.sh
 sudo ./detect-zscaler-region.sh --install
 ```
 
+## Exit Codes (macOS)
+
+| Code | Meaning | Description |
+|------|---------|-------------|
+| `0` | NON-CN | Not routing through a China Zscaler PSE |
+| `1` | CN | China PSE detected (not an error -- use this to trigger policy) |
+| `2` | UNKNOWN | ZCC not connected or gateway detection failed |
+| `3` | Script error | Bad arguments, invalid IP format, missing permissions |
+
+These structured exit codes allow automation scripts and MDM tools to branch on the result without parsing stdout:
+
+```bash
+./detect-zscaler-region.sh --dry-run --force --test-ip "$IP"
+case $? in
+    0) echo "Non-China" ;;
+    1) echo "China -- apply China SSL policy" ;;
+    2) echo "Unknown -- ZCC not connected" ;;
+    3) echo "Script error" ;;
+esac
+```
+
 ## Files
 
 | File | Purpose |
@@ -99,7 +120,7 @@ sudo ./detect-zscaler-region.sh --install
 | `Detect-ZscalerRegion.ps1` | Windows detection script |
 | `detect-zscaler-region.sh` | macOS detection script |
 | `Test-RegionDetection.ps1` | Windows test harness (27 tests) |
-| `test-region-detection.sh` | macOS/Linux test harness (27 tests) |
+| `test-region-detection.sh` | macOS/Linux test harness (30 tests) |
 | `cn-ipv4.txt` | China IP CIDR list for Layer 2 (2,246 ranges) |
 | `pse-config.sample.json` | Sample config for customer Private PSE ranges |
 | `generate-china-ip-list.py` | Standalone script to regenerate cn-ipv4.txt |
@@ -191,7 +212,7 @@ Then run with `--config pse-config.json` (macOS) or `-ConfigFile pse-config.json
 ```
 
 ```bash
-# macOS/Linux — 27 test cases, no root/ZCC needed
+# macOS/Linux — 30 test cases, no root/ZCC needed
 ./test-region-detection.sh
 ```
 
@@ -201,6 +222,7 @@ Tests cover:
 - **Layer 3**: Custom config file matching
 - **Non-China**: 6 known non-China IPs (Zscaler US, Google, Cloudflare, AWS, RFC1918, loopback)
 - **Edge cases**: Network addresses, broadcasts, boundary crossings, layer transitions
+- **Exit codes**: Validates 0 (NON-CN), 1 (CN), and 3 (invalid input) exit codes
 
 ### Manual Testing
 

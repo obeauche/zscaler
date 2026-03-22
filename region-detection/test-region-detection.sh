@@ -6,7 +6,7 @@
 #
 # Usage: ./test-region-detection.sh
 #
-# Version: 2.0.0
+# Version: 2.1.0
 
 set -euo pipefail
 
@@ -69,7 +69,7 @@ test_case() {
 # === Header ===
 echo ""
 printf "${CYAN}============================================${RESET}\n"
-printf "${CYAN}  Zscaler Region Detection Test Suite v2.0${RESET}\n"
+printf "${CYAN}  Zscaler Region Detection Test Suite v2.1${RESET}\n"
 printf "${CYAN}  Platform: macOS / Linux${RESET}\n"
 printf "${CYAN}============================================${RESET}\n"
 echo ""
@@ -150,6 +150,46 @@ test_case "Adjacent above Beijing /24 (L2)" "211.144.20.0"    "CN"     "L2_China
 test_case "Adjacent below Beijing /24 (L2)" "211.144.18.255"  "CN"     "L2_ChinaIPList"
 # Use a genuinely non-China IP for boundary test
 test_case "Non-China IP near PSE range"     "104.129.192.50"  "NON-CN"
+
+# === Test Group 6: Exit Codes ===
+echo ""
+echo "--- Exit Codes ---"
+
+# NON-CN should exit 0
+_code=0
+bash "$DETECT_SCRIPT" --test-ip 8.8.8.8 --dry-run --force > /dev/null 2>&1 || _code=$?
+if [[ $_code -eq 0 ]]; then
+    printf "  ${GREEN}PASS${RESET}  NON-CN exits 0\n"
+    PASSED=$((PASSED + 1))
+else
+    printf "  ${RED}FAIL${RESET}  NON-CN exits 0 (got $_code)\n"
+    FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+
+# CN should exit 1
+_code=0
+bash "$DETECT_SCRIPT" --test-ip 211.144.19.50 --dry-run --force > /dev/null 2>&1 || _code=$?
+if [[ $_code -eq 1 ]]; then
+    printf "  ${GREEN}PASS${RESET}  CN exits 1\n"
+    PASSED=$((PASSED + 1))
+else
+    printf "  ${RED}FAIL${RESET}  CN exits 1 (got $_code)\n"
+    FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+
+# Invalid IP should exit 3
+_code=0
+bash "$DETECT_SCRIPT" --test-ip "not.an.ip" --dry-run --force > /dev/null 2>&1 || _code=$?
+if [[ $_code -eq 3 ]]; then
+    printf "  ${GREEN}PASS${RESET}  Invalid IP exits 3\n"
+    PASSED=$((PASSED + 1))
+else
+    printf "  ${RED}FAIL${RESET}  Invalid IP exits 3 (got $_code)\n"
+    FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
 
 # === Summary ===
 echo ""

@@ -15,13 +15,13 @@
 #   ./detect-zscaler-region.sh --test-ip 103.40.100.5 --dry-run   # Test China Premium
 #   ./detect-zscaler-region.sh --help
 #
-# Version: 2.0.0
+# Version: 2.1.0
 # Author:  Olivier Beauchemin
 # Requires: macOS 10.15+, root for writing result file
 
 set -euo pipefail
 
-VERSION="2.0.1"
+VERSION="2.1.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 
@@ -75,6 +75,12 @@ Matching Layers:
   L2: China IP list file (covers Private PSEs + China Premium/CBC/Zenlayer)
   L3: Custom config file (customer-specific Private PSE ranges)
 
+Exit Codes:
+  0  NON-CN: not routing through China Zscaler PSE
+  1  CN: China PSE detected (not an error — use this to trigger policy)
+  2  UNKNOWN: ZCC not connected or gateway detection failed
+  3  Script error: bad arguments, missing permissions
+
 Examples:
   sudo $SCRIPT_NAME                                      # Normal detection
   $SCRIPT_NAME --test-ip 211.144.19.50 --dry-run        # Zscaler Public PSE
@@ -96,7 +102,7 @@ while [[ $# -gt 0 ]]; do
         --config)         CONFIG_FILE="$2"; shift 2 ;;
         --install)        INSTALL_LAUNCHD=true; shift ;;
         --help|-h)        usage ;;
-        *)                echo "Unknown option: $1"; usage ;;
+        *)                echo "Unknown option: $1" >&2; exit 3 ;;
     esac
 done
 
@@ -162,61 +168,65 @@ test_china_ip() {
         fi
     done
 
-    # --- Layer 2: Comprehensive China IP list ---
+    # --- Layer 2: Comprehensive China IP list (awk for performance) ---
     if [[ -f "$CHINA_IP_LIST" ]]; then
-        local cidr_count=0
-        while IFS= read -r line; do
-            # Skip comments and empty lines
-            [[ -z "$line" || "$line" == \#* ]] && continue
-            line="${line%%[[:space:]]*}"  # trim trailing whitespace
-            [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] || continue
-            cidr_count=$((cidr_count + 1))
-
-            if test_ip_in_cidr "$gateway_ip" "$line"; then
-                log DEBUG "Layer 2 match: $gateway_ip in $line"
-                echo "L2_ChinaIPList|China (IP geolocation)|${line}|China IP list match (Private PSE / China Premium)"
-                return 0
-            fi
-        done < "$CHINA_IP_LIST"
-        log DEBUG "Layer 2: Checked $cidr_count CIDRs, no match"
+        local l2_match
+        l2_match=$(awk -v ip="$gateway_ip" '
+            /^#/             { next }
+            /^[[:space:]]*$/ { next }
+            {
+                cidr = $1
+                if (cidr !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/) { next }
+                split(cidr, parts, "/")
+                prefix = parts[2] + 0
+                if (prefix < 1 || prefix > 32) { next }
+                split(parts[1], net_parts, ".")
+                net_int = net_parts[1]*16777216 + net_parts[2]*65536 + net_parts[3]*256 + net_parts[4]
+                split(ip, ip_parts, ".")
+                ip_int = ip_parts[1]*16777216 + ip_parts[2]*65536 + ip_parts[3]*256 + ip_parts[4]
+                shift = 32 - prefix
+                if (int(ip_int / (2^shift)) == int(net_int / (2^shift))) {
+                    print cidr
+                    exit 0
+                }
+            }
+        ' "$CHINA_IP_LIST") && [[ -n "$l2_match" ]] && {
+            log DEBUG "Layer 2 match: $gateway_ip in $l2_match"
+            echo "L2_ChinaIPList|China (IP geolocation)|${l2_match}|China IP list match (Private PSE / China Premium)"
+            return 0
+        }
+        log DEBUG "Layer 2: No match in $CHINA_IP_LIST"
     else
         log WARN "Layer 2 skipped: $CHINA_IP_LIST not found"
     fi
 
-    # --- Layer 3: Custom config file ---
+    # --- Layer 3: Custom config file (no python3) ---
     if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
-        # Parse JSON config with python3 (available on macOS).
-        # SECURITY: Pass file path and IP as command-line arguments to avoid
-        # shell injection via crafted file paths or IP strings.
-        local custom_matches
-        custom_matches=$(python3 - "$CONFIG_FILE" "$gateway_ip" <<'PYEOF'
-import json, sys
-try:
-    config_path = sys.argv[1]
-    ip = sys.argv[2]
-    config = json.load(open(config_path))
-    ip_parts = list(map(int, ip.split('.')))
-    ip_uint = (ip_parts[0] << 24) + (ip_parts[1] << 16) + (ip_parts[2] << 8) + ip_parts[3]
-
-    for entry in config.get('china_ranges', []):
-        cidr = entry['cidr']
-        net_str, prefix = cidr.split('/')
-        prefix = int(prefix)
-        net_parts = list(map(int, net_str.split('.')))
-        net_uint = (net_parts[0] << 24) + (net_parts[1] << 16) + (net_parts[2] << 8) + net_parts[3]
-        mask = ((0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF) if prefix < 32 else 0xFFFFFFFF
-        if (ip_uint & mask) == (net_uint & mask):
-            label = entry.get('label', 'Custom range')
-            print(f'L3_CustomConfig|{label}|{cidr}|Custom config: {label}')
-            sys.exit(0)
-except Exception as e:
-    print(f'ERROR|Config parse error|N/A|{e}', file=sys.stderr)
-sys.exit(1)
-PYEOF
-        ) && {
-            echo "$custom_matches"
-            return 0
-        }
+        local cidr label
+        while IFS='|' read -r cidr label; do
+            [[ -z "$cidr" ]] && continue
+            if test_ip_in_cidr "$gateway_ip" "$cidr"; then
+                log DEBUG "Layer 3 match: $gateway_ip in $cidr ($label)"
+                echo "L3_CustomConfig|${label:-Custom range}|${cidr}|Custom config: ${label:-Custom range}"
+                return 0
+            fi
+        done < <(awk '
+            /"cidr"/ {
+                line = $0
+                sub(/.*"cidr"[[:space:]]*:[[:space:]]*"/, "", line)
+                sub(/".*/, "", line)
+                cidr = line
+            }
+            /"label"/ {
+                line = $0
+                sub(/.*"label"[[:space:]]*:[[:space:]]*"/, "", line)
+                sub(/".*/, "", line)
+                label = line
+            }
+            /\}/ {
+                if (cidr != "") { print cidr "|" label; cidr = ""; label = "" }
+            }
+        ' "$CONFIG_FILE" 2>/dev/null)
     fi
 
     return 1
@@ -225,26 +235,16 @@ PYEOF
 # --- ZCC State Detection ---
 
 test_zcc_connected() {
-    # Check if ZCC is running and tunneling on macOS
-
-    if ! pgrep -q "Zscaler" 2>/dev/null; then
-        log WARN "Zscaler processes not running"
-        return 1
-    fi
-
-    # Check for tunnel process
-    if pgrep -q "ZSATunnel" 2>/dev/null || pgrep -q "ZscalerTunnel" 2>/dev/null; then
-        log DEBUG "ZCC tunnel process found"
+    if pgrep -f "[Zz]scaler" > /dev/null 2>&1; then
+        log DEBUG "Zscaler process detected"
         return 0
     fi
-
-    # Check for network activity from Zscaler processes
-    if lsof -i -n 2>/dev/null | grep -q "Zscaler" 2>/dev/null; then
-        log DEBUG "Zscaler network connections found"
+    if [[ -d "/Applications/Zscaler/Zscaler.app" ]] && \
+       pgrep -f "Zscaler.app" > /dev/null 2>&1; then
+        log DEBUG "Zscaler.app process detected"
         return 0
     fi
-
-    log WARN "ZCC tunnel process not detected"
+    log WARN "No Zscaler processes found"
     return 1
 }
 
@@ -274,26 +274,43 @@ get_gateway_from_ip_zscaler() {
 
 get_gateway_from_tunnel_process() {
     local tunnel_pid
-    tunnel_pid=$(pgrep -x "ZSATunnel" 2>/dev/null || pgrep -x "ZscalerTunnel" 2>/dev/null || true)
+    tunnel_pid=$(pgrep -x "ZSATunnel" 2>/dev/null \
+        || pgrep -x "ZscalerTunnel" 2>/dev/null \
+        || pgrep -f "[Zz]scaler" 2>/dev/null | head -1 \
+        || true)
 
     if [[ -z "$tunnel_pid" ]]; then
-        log WARN "Tunnel process not found"
+        log WARN "No Zscaler process found for tunnel detection"
         return 1
     fi
 
     local remote_ip
-    remote_ip=$(lsof -i TCP -n -P 2>/dev/null | grep "$tunnel_pid" | grep "ESTABLISHED" | grep ":443->" | head -1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | tail -1)
+    remote_ip=$(lsof -i TCP -n -P -p "$tunnel_pid" 2>/dev/null | awk '
+        /ESTABLISHED/ && /:443->/ {
+            line = $0
+            sub(/.*->/, "", line)
+            sub(/:.*/, "", line)
+            if (line ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print line; exit 0 }
+        }
+    ') || true
 
     if [[ -z "$remote_ip" ]]; then
-        remote_ip=$(lsof -i TCP -n -P 2>/dev/null | grep "$tunnel_pid" | grep "ESTABLISHED" | head -1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | tail -1)
+        remote_ip=$(lsof -i TCP -n -P -p "$tunnel_pid" 2>/dev/null | awk '
+            /ESTABLISHED/ {
+                line = $0
+                sub(/.*->/, "", line)
+                sub(/:.*/, "", line)
+                if (line ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print line; exit 0 }
+            }
+        ') || true
     fi
 
     if [[ -z "$remote_ip" ]]; then
-        log WARN "No remote connections for tunnel process"
+        log WARN "No established connections found for Zscaler process (pid=$tunnel_pid)"
         return 1
     fi
 
-    log INFO "Tunnel connected to: $remote_ip"
+    log INFO "Tunnel connected to: $remote_ip (pid=$tunnel_pid)"
     echo "${remote_ip}|true|tunnel_process"
 }
 
@@ -303,6 +320,18 @@ get_pse_gateway_ip() {
     result=$(get_gateway_from_tunnel_process) && { echo "$result"; return 0; }
     log ERROR "All gateway detection methods failed"
     return 1
+}
+
+# --- JSON Helper ---
+
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
 }
 
 # --- Result Output ---
@@ -324,21 +353,22 @@ write_result() {
 
     local previous_region=""
     if [[ -f "$RESULT_FILE" ]]; then
-        # SECURITY: Pass file path as argument, not string interpolation
-        previous_region=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('region',''))" "$RESULT_FILE" 2>/dev/null || true)
+        previous_region=$(grep '"region"' "$RESULT_FILE" 2>/dev/null \
+            | sed 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+            || true)
     fi
 
     cat > "$RESULT_FILE" <<JSONEOF
 {
-    "region": "$region",
-    "gateway_ip": "$gateway_ip",
-    "pse_location": "${pse_location:-Unknown}",
-    "match_layer": "$match_layer",
-    "detection_method": "$method",
-    "confidence": "$confidence",
-    "last_detection": "$timestamp",
-    "script_version": "$VERSION",
-    "previous_region": "$previous_region"
+    "region": "$(json_escape "$region")",
+    "gateway_ip": "$(json_escape "$gateway_ip")",
+    "pse_location": "$(json_escape "${pse_location:-Unknown}")",
+    "match_layer": "$(json_escape "$match_layer")",
+    "detection_method": "$(json_escape "$method")",
+    "confidence": "$(json_escape "$confidence")",
+    "last_detection": "$(json_escape "$timestamp")",
+    "script_version": "$(json_escape "$VERSION")",
+    "previous_region": "$(json_escape "$previous_region")"
 }
 JSONEOF
 
@@ -351,6 +381,22 @@ JSONEOF
     log INFO "Result written: region=$region"
 }
 
+# --- Log Rotation ---
+
+rotate_log() {
+    local max_lines=500
+    if [[ -f "$LOG_FILE" ]]; then
+        local line_count
+        line_count=$(wc -l < "$LOG_FILE" 2>/dev/null | tr -d ' ') || return 0
+        if [[ "$line_count" -gt "$max_lines" ]]; then
+            local tmp="${LOG_FILE}.tmp.$$"
+            tail -n "$max_lines" "$LOG_FILE" > "$tmp" 2>/dev/null \
+                && mv "$tmp" "$LOG_FILE" 2>/dev/null \
+                || rm -f "$tmp" 2>/dev/null
+        fi
+    fi
+}
+
 # --- launchd Installation ---
 
 install_launchd() {
@@ -359,7 +405,20 @@ install_launchd() {
 
     if [[ $EUID -ne 0 ]]; then
         log ERROR "Must run as root to install launchd job"
-        exit 1
+        exit 3
+    fi
+
+    # Build extra arguments to pass through to the plist
+    local extra_args=""
+    if [[ -n "$CONFIG_FILE" ]]; then
+        extra_args="${extra_args}        <string>--config</string>
+        <string>${CONFIG_FILE}</string>
+"
+    fi
+    if [[ "$CHINA_IP_LIST" != "${SCRIPT_DIR}/cn-ipv4.txt" ]]; then
+        extra_args="${extra_args}        <string>--china-ip-list</string>
+        <string>${CHINA_IP_LIST}</string>
+"
     fi
 
     cat > "$plist_path" <<PLISTEOF
@@ -373,7 +432,7 @@ install_launchd() {
     <array>
         <string>/bin/bash</string>
         <string>$script_path</string>
-    </array>
+${extra_args}    </array>
     <key>StartInterval</key>
     <integer>1800</integer>
     <key>RunAtLoad</key>
@@ -394,6 +453,7 @@ PLISTEOF
 # --- Main ---
 
 main() {
+    rotate_log
     log INFO "=== Zscaler Region Detection v${VERSION} (macOS) ==="
     local mode="Live"
     [[ -n "$TEST_IP" ]] && mode="TestIP"
@@ -411,7 +471,7 @@ main() {
         # Validate IP format before using it
         if ! [[ "$TEST_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             log ERROR "Invalid IP address format: $TEST_IP"
-            exit 1
+            exit 3
         fi
         gateway_ip="$TEST_IP"
         through_zscaler="false"
@@ -424,7 +484,7 @@ main() {
                 log WARN "ZCC not connected"
                 write_result "UNKNOWN" "N/A" "N/A" "N/A" "zcc_not_connected" "NONE"
                 echo "RESULT: UNKNOWN (ZCC not connected)"
-                exit 1
+                exit 2
             fi
         fi
 
@@ -433,7 +493,7 @@ main() {
         gw_result=$(get_pse_gateway_ip) || {
             log ERROR "Gateway detection failed"
             echo "RESULT: UNKNOWN (gateway detection failed)"
-            exit 1
+            exit 2
         }
         IFS='|' read -r gateway_ip through_zscaler method <<< "$gw_result"
 
@@ -473,6 +533,13 @@ main() {
     echo "  Method:     $method"
     echo "  Confidence: $confidence"
     echo "============================================"
+
+    # Structured exit codes
+    case "$region" in
+        CN)     exit 1 ;;
+        NON-CN) exit 0 ;;
+        *)      exit 2 ;;
+    esac
 }
 
 main "$@"
