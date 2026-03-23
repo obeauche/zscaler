@@ -53,40 +53,27 @@ function Test-Case {
     if ($ConfigFile) { $params.ConfigFile = $ConfigFile }
 
     try {
-        # Capture output, suppress console from the detection script
-        $result = & $detectScript @params 6>&1 4>&1 | Out-Null
-        # Re-run to get the hashtable result
-        $output = & $detectScript @params *>&1
+        # Capture stream 1 (Write-Output = JSON) while suppressing stream 6 (Write-Host)
+        $jsonOutput = & $detectScript @params 6>$null 3>$null 2>$null
 
-        # Parse the structured result (last hashtable output)
-        # The script returns a hashtable but Write-Host goes to console
-        # We need to get the actual return value
-        $result = & {
-            $VerbosePreference = "SilentlyContinue"
-            $WarningPreference = "SilentlyContinue"
-            & $detectScript @params 6>$null 3>$null *>$null
-        } 2>$null
-
-        # Fallback: parse from Write-Host output if hashtable capture fails
-        if (-not $result -or -not $result.Region) {
-            # Run and capture all output
-            $allOutput = & $detectScript @params 2>&1
-            $regionLine = $allOutput | Select-String "Region=" | Select-Object -Last 1
-            if ($regionLine -and $regionLine -match "Region=(\S+)") {
-                $detectedRegion = $Matches[1].TrimEnd(",")
-            }
-            else {
-                $detectedRegion = "PARSE_ERROR"
-            }
-            $detectedLayer = ""
-            $layerLine = $allOutput | Select-String "Layer=" | Select-Object -Last 1
-            if ($layerLine -and $layerLine -match "Layer=(\S+)") {
-                $detectedLayer = $Matches[1].TrimEnd(",")
+        # Parse the JSON result — the script outputs a single JSON line via Write-Output
+        $parsed = $null
+        if ($jsonOutput) {
+            # $jsonOutput may be a single string or array; take the last non-empty line
+            $jsonLine = ($jsonOutput | Where-Object { $_ -and $_.ToString().Trim().StartsWith("{") }) |
+                Select-Object -Last 1
+            if ($jsonLine) {
+                $parsed = $jsonLine | ConvertFrom-Json
             }
         }
+
+        if ($parsed) {
+            $detectedRegion = $parsed.region
+            $detectedLayer = $parsed.matchLayer
+        }
         else {
-            $detectedRegion = $result.Region
-            $detectedLayer = $result.MatchLayer
+            $detectedRegion = "PARSE_ERROR"
+            $detectedLayer = ""
         }
 
         $regionMatch = ($detectedRegion -eq $ExpectedRegion)
