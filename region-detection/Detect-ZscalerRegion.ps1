@@ -384,12 +384,55 @@ function Get-PSEGatewayIP {
 
 #region --- Registry Output ---
 
+function Write-RegistryValues {
+    <#
+    .SYNOPSIS
+        Write all detection values to a specific registry path.
+    #>
+    param(
+        [string]$Path,
+        [string]$Region,
+        [string]$GatewayIP,
+        [string]$PSELocation,
+        [string]$MatchLayer,
+        [string]$DetectionMethod,
+        [string]$Confidence
+    )
+
+    if (-not (Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+
+    $previousRegion = $null
+    try {
+        $previousRegion = (Get-ItemProperty -Path $Path -Name "CountryCode" -ErrorAction SilentlyContinue).CountryCode
+    } catch {}
+
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
+    $locationValue = if ($PSELocation) { $PSELocation } else { "Unknown" }
+
+    Set-ItemProperty -Path $Path -Name "CountryCode"      -Value $Region            -Type String
+    Set-ItemProperty -Path $Path -Name "GatewayIP"        -Value $GatewayIP         -Type String
+    Set-ItemProperty -Path $Path -Name "PSELocation"      -Value $locationValue     -Type String
+    Set-ItemProperty -Path $Path -Name "MatchLayer"       -Value $MatchLayer        -Type String
+    Set-ItemProperty -Path $Path -Name "DetectionMethod"  -Value $DetectionMethod   -Type String
+    Set-ItemProperty -Path $Path -Name "Confidence"       -Value $Confidence        -Type String
+    Set-ItemProperty -Path $Path -Name "LastDetection"    -Value $timestamp         -Type String
+    Set-ItemProperty -Path $Path -Name "ScriptVersion"    -Value $script:Version    -Type String
+
+    if ($previousRegion -and $previousRegion -ne $Region) {
+        Set-ItemProperty -Path $Path -Name "PreviousRegion" -Value $previousRegion -Type String
+        Set-ItemProperty -Path $Path -Name "RegionChanged"  -Value $timestamp      -Type String
+        Write-Log "Region CHANGED: $previousRegion -> $Region" -Level WARN
+    }
+}
+
 function Write-RegistryResult {
     <#
     .SYNOPSIS
         Write detection result to Windows registry for ZCC Device Posture consumption.
     .DESCRIPTION
-        Creates/updates HKLM:\SOFTWARE\Zscaler\GeoLocation with region detection results.
+        Writes to HKLM (preferred, requires admin) or falls back to HKCU if access is denied.
         Tracks previous region for audit trail. Skips write in DryRun mode.
     #>
     param(
@@ -406,37 +449,33 @@ function Write-RegistryResult {
         return
     }
 
+    $writeParams = @{
+        Region          = $Region
+        GatewayIP       = $GatewayIP
+        PSELocation     = $PSELocation
+        MatchLayer      = $MatchLayer
+        DetectionMethod = $DetectionMethod
+        Confidence      = $Confidence
+    }
+
+    # Try HKLM first (preferred — ZCC Device Posture reads from here)
     try {
-        if (-not (Test-Path $RegistryPath)) {
-            New-Item -Path $RegistryPath -Force | Out-Null
-        }
-
-        $previousRegion = $null
-        try {
-            $previousRegion = (Get-ItemProperty -Path $RegistryPath -Name "CountryCode" -ErrorAction SilentlyContinue).CountryCode
-        } catch {}
-
-        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
-        Set-ItemProperty -Path $RegistryPath -Name "CountryCode"      -Value $Region            -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "GatewayIP"        -Value $GatewayIP         -Type String
-        $locationValue = if ($PSELocation) { $PSELocation } else { "Unknown" }
-        Set-ItemProperty -Path $RegistryPath -Name "PSELocation"      -Value $locationValue -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "MatchLayer"       -Value $MatchLayer        -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "DetectionMethod"  -Value $DetectionMethod   -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "Confidence"       -Value $Confidence        -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "LastDetection"    -Value $timestamp         -Type String
-        Set-ItemProperty -Path $RegistryPath -Name "ScriptVersion"    -Value $script:Version    -Type String
-
-        if ($previousRegion -and $previousRegion -ne $Region) {
-            Set-ItemProperty -Path $RegistryPath -Name "PreviousRegion" -Value $previousRegion -Type String
-            Set-ItemProperty -Path $RegistryPath -Name "RegionChanged"  -Value $timestamp      -Type String
-            Write-Log "Region CHANGED: $previousRegion -> $Region" -Level WARN
-        }
-
-        Write-Log "Registry updated: CountryCode=$Region" -Level INFO
+        Write-RegistryValues -Path $RegistryPath @writeParams
+        Write-Log "Registry updated (HKLM): CountryCode=$Region" -Level INFO
+        return
     }
     catch {
-        Write-Log "Registry write failed: $_" -Level ERROR
+        Write-Log "HKLM write denied (not running as admin), falling back to HKCU" -Level WARN
+    }
+
+    # Fall back to HKCU (no admin required)
+    $hkcuPath = $RegistryPath -replace '^HKLM:', 'HKCU:'
+    try {
+        Write-RegistryValues -Path $hkcuPath @writeParams
+        Write-Log "Registry updated (HKCU): CountryCode=$Region" -Level INFO
+    }
+    catch {
+        Write-Log "Registry write failed (both HKLM and HKCU): $_" -Level ERROR
         throw
     }
 }
