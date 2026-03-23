@@ -116,10 +116,10 @@ log() {
     local entry="[$ts] [$level] $msg"
 
     case "$level" in
-        ERROR) printf '\033[31m%s\033[0m\n' "$entry" ;;
-        WARN)  printf '\033[33m%s\033[0m\n' "$entry" ;;
-        DEBUG) [[ "$VERBOSE" == true ]] && printf '\033[90m%s\033[0m\n' "$entry" || true ;;
-        *)     echo "$entry" ;;
+        ERROR) printf '\033[31m%s\033[0m\n' "$entry" >&2 ;;
+        WARN)  printf '\033[33m%s\033[0m\n' "$entry" >&2 ;;
+        DEBUG) [[ "$VERBOSE" == true ]] && printf '\033[90m%s\033[0m\n' "$entry" >&2 || true ;;
+        *)     echo "$entry" >&2 ;;
     esac
 
     # File output
@@ -261,7 +261,7 @@ get_gateway_from_ip_zscaler() {
     echo "$response" | grep -q "You are accessing the Internet via Zscaler" && through_zscaler="true"
 
     local gateway_ip
-    gateway_ip=$(echo "$response" | grep -oE "from the IP address [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    gateway_ip=$(echo "$response" | grep "from the IP address" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | head -1)
 
     if [[ -z "$gateway_ip" ]]; then
         log WARN "Could not parse IP from ip.zscaler.com"
