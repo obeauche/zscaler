@@ -20,8 +20,9 @@
     .\Test-RegionDetection.ps1 -Verbose
 
 .NOTES
-    Version: 2.0.0
+    Version: 2.1.0
     No admin rights required. No registry writes. No ZCC required.
+    Runs on stock Windows 10/11 with built-in PowerShell 5.1.
 #>
 
 [CmdletBinding()]
@@ -53,13 +54,14 @@ function Test-Case {
     if ($ConfigFile) { $params.ConfigFile = $ConfigFile }
 
     try {
-        # Capture stream 1 (Write-Output = JSON) while suppressing stream 6 (Write-Host)
+        # The detect script outputs JSON via Write-Output (stream 1) and logs via
+        # Write-Host (stream 6). Capture only stream 1 and suppress the rest so we
+        # get clean JSON without console log noise. This works on stock PS 5.1+.
         $jsonOutput = & $detectScript @params 6>$null 3>$null 2>$null
 
-        # Parse the JSON result — the script outputs a single JSON line via Write-Output
+        # Parse the JSON result — extract the last JSON object from stdout
         $parsed = $null
         if ($jsonOutput) {
-            # $jsonOutput may be a single string or array; take the last non-empty line
             $jsonLine = ($jsonOutput | Where-Object { $_ -and $_.ToString().Trim().StartsWith("{") }) |
                 Select-Object -Last 1
             if ($jsonLine) {

@@ -2,7 +2,15 @@
 
 All notable changes to the Zscaler GeoLocation Detection Script are documented here.
 
-## [2.1.0] - 2026-03-22
+## [2.1.0] - 2026-03-23
+
+### Changed (Windows)
+- **No admin required** — registry write falls back from HKLM to HKCU when not running as Administrator
+- Fixed `ip.zscaler.com` HTML parser to handle `<span>` tags wrapping the IP address
+- Fixed test harness to capture JSON output via PowerShell stream 1 instead of parsing Write-Host (stream 6)
+- Bumped version to 2.1.0
+
+## [2.1.0-macos] - 2026-03-22
 
 ### Changed
 - Removed Python 3 dependency — Layer 3 config parsing and JSON reading now use pure bash/awk

@@ -21,7 +21,8 @@ Instead of attempting independent geolocation (GPS, WiFi, cellular, IP geo APIs)
 │     ├─ L2: China IP list (Private PSE / China Premium)             │
 │     └─ L3: Custom config (customer Private PSE ranges)             │
 │  4. Write result                                                    │
-│     ├─ Windows: HKLM:\SOFTWARE\Zscaler\GeoLocation\CountryCode    │
+│     ├─ Windows: HKLM:\...\GeoLocation (admin)                     │
+│     │           or HKCU:\...\GeoLocation (non-admin fallback)      │
 │     └─ macOS:   /Library/Application Support/Zscaler/.../region.json│
 │                                               │                     │
 │  ZCC Device Posture Profile ◄─────────────────┘                    │
@@ -72,7 +73,7 @@ This handles all deployment scenarios:
 # Test with a known China PSE IP (no admin, no ZCC needed)
 .\Detect-ZscalerRegion.ps1 -TestIP "211.144.19.50" -DryRun
 
-# Live detection (requires ZCC connected + admin)
+# Live detection (requires ZCC connected; admin optional — falls back to HKCU)
 .\Detect-ZscalerRegion.ps1
 
 # Install as scheduled task (every 30 min + on logon)
@@ -173,7 +174,10 @@ Then run with `--config pse-config.json` (macOS) or `-ConfigFile pse-config.json
 
 ### Output
 
-**Windows Registry** (`HKLM:\SOFTWARE\Zscaler\GeoLocation`):
+**Windows Registry** (`HKLM:\SOFTWARE\Zscaler\GeoLocation` or `HKCU:\SOFTWARE\Zscaler\GeoLocation`):
+
+> **Note:** The script writes to HKLM when running as Administrator (preferred for ZCC Device Posture).
+> If HKLM access is denied, it automatically falls back to HKCU — no error, no admin required.
 
 | Value | Type | Example | Description |
 |-------|------|---------|-------------|
@@ -347,8 +351,8 @@ The script outputs JSON for ZDX result capture:
 | Requirement | Windows | macOS |
 |-------------|---------|-------|
 | **OS** | Windows 10/11 | macOS 10.15+ |
-| **Shell** | PowerShell 5.1+ | bash |
-| **Privileges** | Administrator (registry write) | root (file write) |
+| **Shell** | PowerShell 5.1+ (ships with Windows) | bash |
+| **Privileges** | None (writes HKCU); Administrator for HKLM | root (file write) |
 | **ZCC** | Installed, enrolled, tunneling | Installed, enrolled, tunneling |
 | **Network** | HTTPS to ip.zscaler.com (optional) | HTTPS to ip.zscaler.com (optional) |
 | **API Keys** | None | None |

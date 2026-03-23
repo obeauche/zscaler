@@ -65,9 +65,10 @@
     .\Detect-ZscalerRegion.ps1 -ConfigFile ".\pse-config.json"
 
 .NOTES
-    Version:  2.0.1
+    Version:  2.1.0
     Author:   Olivier Beauchemin
-    Requires: PowerShell 5.1+, Administrator (for registry write)
+    Requires: PowerShell 5.1+ (ships with Windows 10/11)
+    Admin:    Optional. Writes to HKLM if admin, falls back to HKCU if not.
 #>
 
 [CmdletBinding()]
@@ -84,7 +85,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$script:Version = "2.0.1"
+$script:Version = "2.1.0"
 
 # --- Default China IP list path: same directory as script ---
 if (-not $ChinaIPList) {
@@ -309,6 +310,7 @@ function Get-GatewayFromIpZscaler {
 
         $throughZscaler = $body -match "You are accessing the Internet via Zscaler"
 
+        # Match IP after "from the IP address" — skip any HTML tags (e.g., <span class="...">)
         if ($body -match "from the IP address\s*(?:<[^>]+>\s*)*([\d\.]+)") {
             $ip = $Matches[1]
             Write-Log "ip.zscaler.com: $ip (through Zscaler: $throughZscaler)" -Level INFO
@@ -388,6 +390,10 @@ function Write-RegistryValues {
     <#
     .SYNOPSIS
         Write all detection values to a specific registry path.
+    .DESCRIPTION
+        Low-level helper that creates the registry key (if missing) and sets all
+        detection result values. Tracks the previous CountryCode for audit trail.
+        Called by Write-RegistryResult for both HKLM and HKCU paths.
     #>
     param(
         [string]$Path,
