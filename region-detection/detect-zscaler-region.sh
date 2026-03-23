@@ -130,6 +130,9 @@ log() {
 
 # --- CIDR Matching ---
 
+# Convert a dotted-decimal IPv4 address (e.g. "192.168.1.1") to a single
+# 32-bit unsigned integer so CIDR range comparisons can be done with simple
+# arithmetic instead of string operations.
 ip_to_uint32() {
     local ip="$1"
     local a b c d
@@ -137,6 +140,17 @@ ip_to_uint32() {
     echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
 }
 
+# Return 0 (true) if $ip falls inside $cidr, 1 (false) otherwise.
+#
+# How it works:
+#   A /prefix_len network mask has the top prefix_len bits set to 1 and the
+#   rest set to 0.  Building that mask in bash:
+#     mask = (0xFFFFFFFF << (32 - prefix_len)) & 0xFFFFFFFF
+#   The & 0xFFFFFFFF trims the result to 32 bits because bash uses 64-bit
+#   signed integers — without it, a /0 left-shift would overflow.
+#
+#   Two IPs are in the same subnet when their masked values are identical:
+#     (ip & mask) == (network_address & mask)
 test_ip_in_cidr() {
     local ip="$1" cidr="$2"
     local network="${cidr%/*}" prefix_len="${cidr#*/}"
@@ -145,7 +159,7 @@ test_ip_in_cidr() {
     ip_uint=$(ip_to_uint32 "$ip")
     net_uint=$(ip_to_uint32 "$network")
 
-    if [[ "$prefix_len" -eq 0 ]]; then return 0; fi
+    if [[ "$prefix_len" -eq 0 ]]; then return 0; fi  # /0 matches everything
 
     mask=$(( (0xFFFFFFFF << (32 - prefix_len)) & 0xFFFFFFFF ))
 
@@ -169,6 +183,17 @@ test_china_ip() {
     done
 
     # --- Layer 2: Comprehensive China IP list (awk for performance) ---
+    # cn-ipv4.txt contains ~2,200 CIDRs. A pure bash loop over that many
+    # entries takes 1-3 seconds; awk processes the same file in ~50ms because
+    # it reads line-by-line in a native loop without fork overhead.
+    #
+    # POSIX awk has no bitwise operators, so the subnet test uses integer
+    # division as an equivalent:
+    #   Right-shifting both IPs by (32 - prefix) discards the host bits,
+    #   leaving only the network bits.  If those truncated values are equal,
+    #   the IP is inside the subnet — same result as (ip & mask) == (net & mask).
+    #   Example: 192.168.1.50 in 192.168.1.0/24 → shift=8
+    #     int(3232235826 / 256) == int(3232235776 / 256)  → 12632952 == 12632952 ✓
     if [[ -f "$CHINA_IP_LIST" ]]; then
         local l2_match
         l2_match=$(awk -v ip="$gateway_ip" '
@@ -201,6 +226,18 @@ test_china_ip() {
     fi
 
     # --- Layer 3: Custom config file (no python3) ---
+    # Parses pse-config.json using a line-by-line awk state machine instead of
+    # a real JSON parser — avoids the Python 3 dependency required for MDM
+    # deployment scenarios where Python may not be present.
+    #
+    # The awk block is NOT a general JSON parser. It relies on the known
+    # structure of pse-config.json (one key per line, objects closed by "}"):
+    #   1. When a line contains "cidr", extract the value between the quotes.
+    #   2. When a line contains "label", extract the value between the quotes.
+    #   3. When a closing "}" is seen and a cidr was captured, emit "cidr|label"
+    #      and reset state for the next object.
+    # This works correctly for the expected format; it will silently produce
+    # wrong results if the JSON is minified (multiple keys on one line).
     if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
         local cidr label
         while IFS='|' read -r cidr label; do
