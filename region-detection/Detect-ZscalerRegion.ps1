@@ -309,7 +309,7 @@ function Get-GatewayFromIpZscaler {
 
         $throughZscaler = $body -match "You are accessing the Internet via Zscaler"
 
-        if ($body -match "from the IP address\s+([\d\.]+)") {
+        if ($body -match "from the IP address\s*(?:<[^>]+>\s*)*([\d\.]+)") {
             $ip = $Matches[1]
             Write-Log "ip.zscaler.com: $ip (through Zscaler: $throughZscaler)" -Level INFO
             return @{ IP = $ip; ThroughZscaler = $throughZscaler; Method = "ip.zscaler.com" }
