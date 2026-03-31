@@ -85,7 +85,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$script:Version = "2.1.0"
+$script:Version = "2.1.1"
 
 # --- Default China IP list path: same directory as script ---
 if (-not $ChinaIPList) {
@@ -547,7 +547,7 @@ function Invoke-Detection {
     # Handle --install
     if ($Install) {
         Install-DetectionTask
-        return @{ Success = $true; Action = "Installed scheduled task" }
+        return @{ Success = $true; Region = "N/A"; GatewayIP = "N/A"; PSELocation = "N/A"; MatchLayer = "N/A"; Method = "Install"; Confidence = "N/A"; Action = "Installed scheduled task" }
     }
 
     # --- Phase 1: Get gateway IP ---
@@ -555,7 +555,7 @@ function Invoke-Detection {
         # Validate IP address format
         if ($TestIP -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
             Write-Log "Invalid IP address format: $TestIP" -Level ERROR
-            return @{ Success = $false; Region = "UNKNOWN"; Reason = "Invalid IP format" }
+            return @{ Success = $false; Region = "UNKNOWN"; GatewayIP = "N/A"; PSELocation = "N/A"; MatchLayer = "N/A"; Method = "TestIP"; Confidence = "NONE"; Reason = "Invalid IP format" }
         }
         Write-Log "Test IP: $TestIP" -Level INFO
         $gatewayResult = @{ IP = $TestIP; ThroughZscaler = $false; Method = "TestIP" }
@@ -569,13 +569,13 @@ function Invoke-Detection {
                 Write-Log "ZCC not in TUNNEL_FORWARDING ($($zccState.ZWSState))" -Level WARN
                 Write-RegistryResult -Region "UNKNOWN" -GatewayIP "N/A" -PSELocation "N/A" `
                     -MatchLayer "N/A" -DetectionMethod "ZCC not connected" -Confidence "NONE"
-                return @{ Success = $false; Region = "UNKNOWN"; Reason = "ZCC not tunneling" }
+                return @{ Success = $false; Region = "UNKNOWN"; GatewayIP = "N/A"; PSELocation = "N/A"; MatchLayer = "N/A"; Method = "ZCC not connected"; Confidence = "NONE"; Reason = "ZCC not tunneling" }
             }
         }
 
         $gatewayResult = Get-PSEGatewayIP
         if (-not $gatewayResult) {
-            return @{ Success = $false; Region = "UNKNOWN"; Reason = "Gateway detection failed" }
+            return @{ Success = $false; Region = "UNKNOWN"; GatewayIP = "N/A"; PSELocation = "N/A"; MatchLayer = "N/A"; Method = "Gateway detection"; Confidence = "NONE"; Reason = "Gateway detection failed" }
         }
     }
 
