@@ -4,8 +4,11 @@ All notable changes to the Zscaler GeoLocation Detection Script are documented h
 
 ## [2.1.1] - 2026-03-31
 
-### Fixed
+### Fixed (Windows)
 - **`PropertyNotFoundException` under `Set-StrictMode -Version Latest`** — Early-return paths in `Invoke-Detection` (install, invalid IP, ZCC not tunneling, gateway detection failed) returned hashtables missing `GatewayIP`, `PSELocation`, `MatchLayer`, `Method`, and `Confidence` properties. The JSON output block at the end of the script accesses these on every result, causing a crash when strict mode is enabled. All 4 early-return paths now include the full property set.
+
+### Fixed (macOS)
+- **Gateway failure path now writes result file** — When `get_pse_gateway_ip` failed, the script exited with code 2 but did not write a result JSON file, leaving stale data from a previous run. Now writes `UNKNOWN` result before exiting.
 
 ## [2.1.0] - 2026-03-23
 

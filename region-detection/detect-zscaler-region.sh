@@ -15,13 +15,13 @@
 #   ./detect-zscaler-region.sh --test-ip 103.40.100.5 --dry-run   # Test China Premium
 #   ./detect-zscaler-region.sh --help
 #
-# Version: 2.1.0
+# Version: 2.1.1
 # Author:  Olivier Beauchemin
 # Requires: macOS 10.15+, root for writing result file
 
 set -euo pipefail
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 
@@ -529,6 +529,7 @@ main() {
         local gw_result
         gw_result=$(get_pse_gateway_ip) || {
             log ERROR "Gateway detection failed"
+            write_result "UNKNOWN" "N/A" "N/A" "N/A" "gateway_detection" "NONE"
             echo "RESULT: UNKNOWN (gateway detection failed)"
             exit 2
         }
